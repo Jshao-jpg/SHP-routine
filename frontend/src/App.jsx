@@ -322,14 +322,22 @@ function App() {
         const idx = newNodes.findIndex(n => n.id === id)
         newNodes[idx].node = nodeName
 
-        if (newNodes[idx].location && !routeOptions[nodeName]?.locations.includes(newNodes[idx].location)) {
-            newNodes[idx].location = ''
-            newNodes[idx].from = ''
-            newNodes[idx].to = ''
+        // Auto-select the first available location for this node if the current one is invalid
+        if (nodeName && (!newNodes[idx].location || !routeOptions[nodeName]?.locations.includes(newNodes[idx].location))) {
+            const firstLoc = routeOptions[nodeName]?.locations[0] || ''
+            newNodes[idx].location = firstLoc
+            if (firstLoc) {
+                const parts = firstLoc.split(' -> ')
+                newNodes[idx].from = parts[0]?.trim() || ''
+                newNodes[idx].to = parts[1]?.trim() || ''
+            }
+        }
+
+        if (newNodes[idx].node && newNodes[idx].location) {
+            updateFields(id, newNodes[idx].node, newNodes[idx].location)
+        } else {
             newNodes[idx].fields = []
             newNodes[idx].inputs = {}
-        } else if (newNodes[idx].location) {
-            updateFields(id, nodeName, newNodes[idx].location)
         }
         setSelectedNodes(newNodes)
     }
@@ -344,9 +352,10 @@ function App() {
             newNodes[idx].from = parts[0]?.trim() || ''
             newNodes[idx].to = parts[1]?.trim() || ''
 
-            if (!newNodes[idx].node) {
+            // Auto-select the first valid node for this location if current node doesn't match
+            if (!newNodes[idx].node || !routeOptions[newNodes[idx].node]?.locations.includes(locationStr)) {
                 const possible = Object.keys(routeOptions).filter(n => routeOptions[n].locations.includes(locationStr))
-                if (possible.length === 1) {
+                if (possible.length > 0) {
                     newNodes[idx].node = possible[0]
                 }
             }
@@ -738,12 +747,23 @@ function App() {
                         const pos = boxPositions[box.id] || { x: box.x, y: box.y }
                         const label = boxLabels[box.id] || box.defaultLabel
                         const width = Math.max(80, Math.min(150, label.length * 8 + 20))
-                        const isActive = selectedNodes.some(n =>
-                            routeOptions[n.node]?.details?.some(d =>
-                                getLocationBoxId(d.from, n.node) === box.id ||
-                                getLocationBoxId(d.to, n.node) === box.id
-                            )
-                        )
+                        const isActive = selectedNodes.some(n => {
+                            if (!n.node) return false
+                            const connInfo = mapData.connections.find(c => c.node === n.node)
+                            if (!connInfo) return false
+
+                            if (n.node !== 'E') {
+                                // Default highlight ends of the node (e.g. F lights up Vendor & WAHL)
+                                return box.id === connInfo.from || box.id === connInfo.to
+                            } else {
+                                // Node E is special and follows directional location choice
+                                if (!n.location) return box.id === connInfo.from || box.id === connInfo.to
+                                const parts = n.location.split('->').map(s => s.trim())
+                                const tidFrom = getLocationBoxId(parts[0], n.node)
+                                const tidTo = getLocationBoxId(parts[1], n.node)
+                                return tidFrom === box.id || tidTo === box.id
+                            }
+                        })
 
                         return (
                             <g
@@ -831,10 +851,9 @@ function App() {
                                             <label className="field-label">Node</label>
                                             <select className="field-select" value={node.node} onChange={(e) => handleNodeChange(node.id, e.target.value)}>
                                                 <option value="">Select Node</option>
-                                                {Object.keys(routeOptions).map(n => {
-                                                    const isAvailable = !node.location || routeOptions[n].locations.includes(node.location)
-                                                    return <option key={n} value={n} disabled={!isAvailable}>{n}</option>
-                                                })}
+                                                {Object.keys(routeOptions).map(n => (
+                                                    <option key={n} value={n}>{n}</option>
+                                                ))}
                                             </select>
                                         </div>
                                     </div>
